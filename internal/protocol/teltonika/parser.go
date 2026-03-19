@@ -36,14 +36,17 @@ func ParseHandshake(b []byte) (*IMEIHandshake, error) {
 	if len(b) < 3 {
 		return nil, fmt.Errorf("handshake too short")
 	}
+
 	ln := int(binary.BigEndian.Uint16(b[:2]))
 	if len(b) != ln+2 {
 		return nil, fmt.Errorf("invalid imei handshake length: got %d want %d", len(b), ln+2)
 	}
+
 	imei := string(b[2:])
 	if len(imei) < 14 || len(imei) > 17 {
 		return nil, fmt.Errorf("invalid imei length %d", len(imei))
 	}
+
 	return &IMEIHandshake{IMEI: imei}, nil
 }
 
@@ -51,12 +54,15 @@ func ParseAVL(frame []byte, imei string) (*Packet, error) {
 	if len(frame) < 12 {
 		return nil, fmt.Errorf("avl frame too short")
 	}
+
 	if binary.BigEndian.Uint32(frame[:4]) != 0 {
 		return nil, fmt.Errorf("invalid preamble")
 	}
+
 	dataLen := int(binary.BigEndian.Uint32(frame[4:8]))
-	if len(frame) != 8+dataLen+4 {
-		return nil, fmt.Errorf("invalid avl frame length: got %d want %d", len(frame), 8+dataLen+4)
+	expectedLen := 8 + dataLen + 4
+	if len(frame) != expectedLen {
+		return nil, fmt.Errorf("invalid avl frame length: got %d want %d", len(frame), expectedLen)
 	}
 
 	codec := frame[8]
@@ -64,15 +70,23 @@ func ParseAVL(frame []byte, imei string) (*Packet, error) {
 		return nil, fmt.Errorf("unsupported teltonika codec 0x%02X", codec)
 	}
 
+	// payload layout:
+	// [codec id][record count 1][records...][record count 2]
 	payload := frame[8 : 8+dataLen]
+
 	wantCRC := binary.BigEndian.Uint32(frame[len(frame)-4:])
 	gotCRC := uint32(common.CRC16IBM(payload))
 	if wantCRC != gotCRC {
 		return nil, fmt.Errorf("crc mismatch: got %08X want %08X", gotCRC, wantCRC)
 	}
 
-	count1 := int(frame[9])
-	pos := 10
+	if len(payload) < 3 {
+		return nil, fmt.Errorf("payload too short")
+	}
+
+	count1 := int(payload[1])
+	pos := 2
+
 	records := make([]models.Telemetry, 0, count1)
 	for i := 0; i < count1; i++ {
 		rec, next, err := parseRecord(codec, payload, pos, imei)
@@ -82,9 +96,11 @@ func ParseAVL(frame []byte, imei string) (*Packet, error) {
 		records = append(records, rec)
 		pos = next
 	}
+
 	if pos >= len(payload) {
 		return nil, fmt.Errorf("missing second record count")
 	}
+
 	count2 := int(payload[pos])
 	if count1 != count2 {
 		return nil, fmt.Errorf("record count mismatch %d != %d", count1, count2)
@@ -113,9 +129,13 @@ func BuildAVLAck(count int) []byte {
 }
 
 func parseRecord(codec byte, payload []byte, pos int, imei string) (models.Telemetry, int, error) {
+	if pos < 0 || pos >= len(payload) {
+		return models.Telemetry{}, pos, fmt.Errorf("record position out of bounds")
+	}
 	if len(payload[pos:]) < 24 {
 		return models.Telemetry{}, pos, fmt.Errorf("record too short")
 	}
+
 	tsMillis := int64(binary.BigEndian.Uint64(payload[pos : pos+8]))
 	deviceTime := time.UnixMilli(tsMillis).UTC()
 	pos += 8
@@ -125,14 +145,19 @@ func parseRecord(codec byte, payload []byte, pos int, imei string) (models.Telem
 
 	lonRaw := int32(binary.BigEndian.Uint32(payload[pos : pos+4]))
 	pos += 4
+
 	latRaw := int32(binary.BigEndian.Uint32(payload[pos : pos+4]))
 	pos += 4
+
 	altitude := int(int16(binary.BigEndian.Uint16(payload[pos : pos+2])))
 	pos += 2
+
 	angle := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
+
 	sats := int(payload[pos])
 	pos++
+
 	speed := float64(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
 
@@ -178,34 +203,44 @@ func parseCodec8IO(payload []byte, pos int, t *models.Telemetry) (int, error) {
 	if len(payload[pos:]) < 2 {
 		return pos, fmt.Errorf("codec8 io header too short")
 	}
+
 	eventID := int(payload[pos])
 	pos++
+
 	total := int(payload[pos])
 	pos++
 	_ = total
 
 	counts := []int{}
 	sizes := []int{1, 2, 4, 8}
+
 	for i := 0; i < 4; i++ {
 		if len(payload[pos:]) < 1 {
 			return pos, fmt.Errorf("codec8 io count too short")
 		}
+
 		counts = append(counts, int(payload[pos]))
 		pos++
+
 		for j := 0; j < counts[i]; j++ {
 			if len(payload[pos:]) < 1+sizes[i] {
 				return pos, fmt.Errorf("codec8 io value too short")
 			}
+
 			ioID := int(payload[pos])
 			pos++
+
 			value := payload[pos : pos+sizes[i]]
 			pos += sizes[i]
+
 			applyIO(ioID, value, t)
 		}
 	}
+
 	if eventID > 0 {
 		t.EventIOID = &eventID
 	}
+
 	return pos, nil
 }
 
@@ -213,8 +248,10 @@ func parseCodec8EIO(payload []byte, pos int, t *models.Telemetry) (int, error) {
 	if len(payload[pos:]) < 4 {
 		return pos, fmt.Errorf("codec8e io header too short")
 	}
+
 	eventID := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
+
 	total := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
 	_ = total
@@ -223,16 +260,21 @@ func parseCodec8EIO(payload []byte, pos int, t *models.Telemetry) (int, error) {
 		if len(payload[pos:]) < 2 {
 			return pos, fmt.Errorf("codec8e io count too short")
 		}
+
 		count := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 		pos += 2
+
 		for j := 0; j < count; j++ {
 			if len(payload[pos:]) < 2+size {
 				return pos, fmt.Errorf("codec8e io value too short")
 			}
+
 			ioID := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 			pos += 2
+
 			value := payload[pos : pos+size]
 			pos += size
+
 			applyIO(ioID, value, t)
 		}
 	}
@@ -240,62 +282,79 @@ func parseCodec8EIO(payload []byte, pos int, t *models.Telemetry) (int, error) {
 	if len(payload[pos:]) < 2 {
 		return pos, fmt.Errorf("codec8e nx count too short")
 	}
+
 	nxCount := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
+
 	for i := 0; i < nxCount; i++ {
 		if len(payload[pos:]) < 4 {
 			return pos, fmt.Errorf("codec8e nx header too short")
 		}
+
 		ioID := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 		pos += 2
+
 		ln := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 		pos += 2
+
 		if len(payload[pos:]) < ln {
 			return pos, fmt.Errorf("codec8e nx value too short")
 		}
+
 		value := payload[pos : pos+ln]
 		pos += ln
+
 		applyIO(ioID, value, t)
 	}
+
 	if eventID > 0 {
 		t.EventIOID = &eventID
 	}
+
 	return pos, nil
 }
 
 func parseCodec16IO(payload []byte, pos int, t *models.Telemetry) (int, error) {
-	if len(payload[pos:]) < 3 {
+	if len(payload[pos:]) < 5 {
 		return pos, fmt.Errorf("codec16 generation/event header too short")
 	}
+
 	pos++ // generation type
+
 	eventID := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
-	if len(payload[pos:]) < 2 {
-		return pos, fmt.Errorf("codec16 total too short")
-	}
+
 	total := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 	pos += 2
 	_ = total
+
 	for _, size := range []int{1, 2, 4, 8} {
 		if len(payload[pos:]) < 2 {
 			return pos, fmt.Errorf("codec16 count too short")
 		}
+
 		count := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 		pos += 2
+
 		for i := 0; i < count; i++ {
 			if len(payload[pos:]) < 2+size {
 				return pos, fmt.Errorf("codec16 value too short")
 			}
+
 			ioID := int(binary.BigEndian.Uint16(payload[pos : pos+2]))
 			pos += 2
+
 			value := payload[pos : pos+size]
 			pos += size
+
 			applyIO(ioID, value, t)
 		}
 	}
+
 	if eventID > 0 {
 		t.EventIOID = &eventID
 	}
+
 	return pos, nil
 }
 
@@ -307,6 +366,7 @@ func applyIO(id int, value []byte, t *models.Telemetry) {
 		}
 		return v
 	}
+
 	switch id {
 	case 66:
 		v := int(asUint(value))
