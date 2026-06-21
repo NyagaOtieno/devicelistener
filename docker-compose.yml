@@ -1,4 +1,5 @@
 services:
+
   postgres:
     image: postgres:16
     container_name: gps-postgres
@@ -6,50 +7,82 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: trackers
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    expose:
+      - "5432"
+    restart: unless-stopped
 
   api:
     build:
       context: .
       dockerfile: deploy/Dockerfile
       args: { SERVICE: api }
-    env_file: .env.example
+    env_file: .env
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
       API_ADDR: ":8080"
     depends_on: [postgres]
-    ports: ["8080:8080"]
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
 
   gt06-listener:
-    build: { context: ., dockerfile: deploy/Dockerfile, args: { SERVICE: gt06-listener } }
-    env_file: .env.example
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: gt06-listener }
+    env_file: .env
     environment:
       GT06_TCP_ADDR: ":9001"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
     depends_on: [postgres]
-    ports: ["9001:9001"]
+    ports:
+      - "9001:9001"
+    restart: unless-stopped
 
   uniguard-listener:
-    build: { context: ., dockerfile: deploy/Dockerfile, args: { SERVICE: uniguard-listener } }
-    env_file: .env.example
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: uniguard-listener }
+    env_file: .env
     environment:
       UNIGUARD_TCP_ADDR: ":9002"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
     depends_on: [postgres]
-    ports: ["9002:9002"]
+    ports:
+      - "9002:9002"
+    restart: unless-stopped
 
   teltonika-listener:
-    build: { context: ., dockerfile: deploy/Dockerfile, args: { SERVICE: teltonika-listener } }
-    env_file: .env.example
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: teltonika-listener }
+    env_file: .env
     environment:
       TELTONIKA_TCP_ADDR: ":9003"
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
     depends_on: [postgres]
-    ports: ["9003:9003"]
+    ports:
+      - "9003:9003"
+    restart: unless-stopped
+
+  device-listener:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      args: { SERVICE: devicelistener }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
+      LISTENER_PORT: ":9100"
+    depends_on: [postgres]
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
