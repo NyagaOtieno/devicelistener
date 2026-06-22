@@ -1,18 +1,5 @@
 services:
 
-  postgres:
-    image: postgres:16
-    container_name: gps-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: trackers
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
-    expose:
-      - "5432"
-
   api:
     build:
       context: .
@@ -21,9 +8,7 @@ services:
         SERVICE: api
     env_file: .env
     environment:
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
       API_ADDR: ":8080"
-    depends_on: [postgres]
     ports:
       - "8080:8080"
 
@@ -36,8 +21,6 @@ services:
     env_file: .env
     environment:
       GT06_TCP_ADDR: ":9001"
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
-    depends_on: [postgres]
     ports:
       - "9001:9001"
 
@@ -50,8 +33,6 @@ services:
     env_file: .env
     environment:
       UNIGUARD_TCP_ADDR: ":9002"
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
-    depends_on: [postgres]
     ports:
       - "9002:9002"
 
@@ -64,10 +45,5 @@ services:
     env_file: .env
     environment:
       TELTONIKA_TCP_ADDR: ":9003"
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/trackers?sslmode=disable
-    depends_on: [postgres]
     ports:
       - "9003:9003"
-
-volumes:
-  postgres_data:
