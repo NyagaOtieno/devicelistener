@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,35 @@ func (s *Server) deviceRoutes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, latest)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "location" && r.Method == http.MethodGet {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		loc, err := s.store.GetLatestLocation(ctx, imei)
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+
+		writeJSON(w, 200, loc)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "history" && r.Method == http.MethodGet {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		limit := 50
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 1000 {
+				limit = parsed
+			}
+		}
+		hist, err := s.store.GetLocationHistory(ctx, imei, limit)
+		if err != nil {
+			writeError(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, hist)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "commands" && r.Method == http.MethodPost {

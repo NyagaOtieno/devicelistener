@@ -142,3 +142,31 @@ func nonZeroTime(t time.Time) time.Time {
 	}
 	return t.UTC()
 }
+func (s *Store) GetLatestLocation(ctx context.Context, imei string) (models.Telemetry, error) {
+var t models.Telemetry
+var packetType string
+err := s.Pool.QueryRow(ctx, `SELECT id, imei, protocol, packet_type, COALESCE(serial,''), event_io_id, gps_valid, latitude, longitude, speed_kph, course, satellites, mcc, mnc, lac, cell_id, battery_level, signal_level, COALESCE(alarm_code,''), COALESCE(raw_payload,''), device_time, received_at FROM telemetry WHERE imei=$1 AND gps_valid=true ORDER BY received_at DESC LIMIT 1`, imei).Scan(&t.ID, &t.DeviceIMEI, &t.Protocol, &packetType, &t.Serial, &t.EventIOID, &t.GPSValid, &t.Latitude, &t.Longitude, &t.SpeedKPH, &t.Course, &t.Satellites, &t.MCC, &t.MNC, &t.LAC, &t.CellID, &t.BatteryLevel, &t.SignalLevel, &t.AlarmCode, &t.RawPayload, &t.DeviceTime, &t.ReceivedAt)
+if err != nil {
+return t, err
+}
+t.PacketType = models.PacketType(packetType)
+return t, nil
+}
+func (s *Store) GetLocationHistory(ctx context.Context, imei string, limit int) ([]models.Telemetry, error) {
+rows, err := s.Pool.Query(ctx, `SELECT id, imei, protocol, packet_type, COALESCE(serial,''), event_io_id, gps_valid, latitude, longitude, speed_kph, course, satellites, mcc, mnc, lac, cell_id, battery_level, signal_level, COALESCE(alarm_code,''), COALESCE(raw_payload,''), device_time, received_at FROM telemetry WHERE imei=$1 AND gps_valid=true ORDER BY received_at DESC LIMIT $2`, imei, limit)
+if err != nil {
+return nil, err
+}
+defer rows.Close()
+var out []models.Telemetry
+for rows.Next() {
+var t models.Telemetry
+var packetType string
+if err := rows.Scan(&t.ID, &t.DeviceIMEI, &t.Protocol, &packetType, &t.Serial, &t.EventIOID, &t.GPSValid, &t.Latitude, &t.Longitude, &t.SpeedKPH, &t.Course, &t.Satellites, &t.MCC, &t.MNC, &t.LAC, &t.CellID, &t.BatteryLevel, &t.SignalLevel, &t.AlarmCode, &t.RawPayload, &t.DeviceTime, &t.ReceivedAt); err != nil {
+return nil, err
+}
+t.PacketType = models.PacketType(packetType)
+out = append(out, t)
+}
+return out, rows.Err()
+}
